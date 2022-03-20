@@ -1,0 +1,172 @@
+%input_audio = 'lab_female.wav';
+input_audio = 'lab_male.wav';
+%input_audio = 'studio_female.wav';
+%input_audio = 'studio_male.wav';
+[y,Fs] = wavread(input_audio);
+n_samples = length(y); %so luong mau cua vecto y
+duration = n_samples/Fs; % thoi gian thuc cua tin hieu
+frame_duration = 0.020; % Moi khung 20ms
+min_silence = 0.2;
+% Moi file tuong ung mot nguong nhat dinh
+
+    
+ 
+%% Chia khung 100ms
+frame_length = Fs * frame_duration; % So mau trong 20ms
+n_frames = floor(duration/frame_duration); % So khung
+frame_du = mod(n_samples, frame_length); % Khung du
+ 
+frames = reshape( y(1:end-frame_du), frame_length, []);% Matrix frame vs row = so mau trong 20ms va so cot mac dinh = (n_length - frame_du )/so row 
+ma = getMA(frames, n_frames, frame_length);
+threshold = findThreshold(ma); % tim threshold - duong phan biet khoang lang va giong noi
+[A1, silence] = process(frames, threshold,ma, min_silence, n_frames, frame_length, Fs);
+processedSignal = A1;
+sound(processedSignal, Fs);
+%% Ve do thi
+draw(processedSignal, y, threshold, ma,silence, frame_du, frame_duration, n_samples, n_frames, Fs);
+%draw
+function [] = draw(processedSignal, y, threshold, ma, silence,frame_du, frame_duration, n_samples, n_frames, Fs)
+% Ham ve do thi nhan doi do: Tin hieu ra, tin hieu vao, nguong loc
+% Ham ste, Matran silence,so frame du, do dai moi frame, 
+% so mau, so frame, Fs
+subplot(2,1,1);
+hold on;
+title('Su dung MA de tach am thanh va khoang lang');
+xlabel('Thoi gian thuc (s)');
+ylabel('Gia tri nang luong da chuan hoa');
+k = 1:n_frames; % k la so khung
+k = k.*(frame_duration); % Chuyen so khung thanh cac moc thoi gian
+for i = 1:n_frames
+    line(i) = threshold;
+end
+plot(k, line, 'r','Linewidth',1); % Ve gian do nang luong MA
+plot(k, ma, 'g', 'Linewidth',1); % ve nguong di qua gian do MA
+% Ve cac duong bien
+ for i = 2: length(silence)
+     j = silence(i)*frame_duration;
+     plot([j, j], [0, 1], 'b','LineStyle','-.')
+ end 
+legend('Nguong','MA', 'Duong bien');
+hold off;
+ 
+subplot(2,1,2);
+hold on;
+xlabel('Thoi gian thuc (s)');
+ylabel('Bien do tin hieu');
+n = 1:n_samples;
+plot(n/Fs, y,'r');
+m = 1:n_samples-frame_du;
+plot(m/Fs, processedSignal, 'g');
+   for i = 1:2:length(silence)-1
+        if silence(i) > 0 && silence(i+1) > 0
+            disp(i)
+            j = silence(i)*frame_duration;
+            k = silence(i+1)*frame_duration;
+            r = fill([j, k, k, j], [-1, -1, 1, 1], 'r', 'LineStyle','-.') ;
+            set(r,'FaceAlpha',0.1) ;
+        end
+   end 
+% Xu ly cac frame cuoi
+if silence(length(silence)) > 0
+    j = silence(length(silence))*frame_duration;
+    k = n_frames*frame_duration;
+    r = fill([j, k, k, j], [-1, -1, 1, 1], 'r','LineStyle','-.') ;
+        set(r,'FaceAlpha',0.1);
+end
+legend('Tin hieu vao','Tin hieu ra','Khoang lang');
+hold off;
+end   % end of draw
+%getMA
+function [ma] = getMA(frames, n_frames, frame_length)
+        % Ham nhan cac doi sola : frames : vector frames,n_frames: do dai cua vector am thanh
+        % goc, frame_length: so mau cua 1 frame
+        % chieu dai khung
+        % Tra ve gian do nang luong MA
+        for k = 1:n_frames
+            sum = 0;
+            for j=1:frame_length
+                sum = sum + abs(frames(j,k)); %tong cac phan tu |x[n-m]|
+            end
+            ma(k) = sum; %MA[k] = tong cac phan tu
+        end
+        ma_max = max(ma); %tim gia tri lon nhat cua MA
+        ma = ma.*(1/ma_max); %chuyen doi bien do cua MA lon nhat thanh 1.
+    end % Ket thuc ham getMA
+%process
+function [newframes, silence] = process(frames, threshold, ma, min_silence, n_frames, frame_length, Fs)
+% Ham nay nhan doi so la vecto frames va 
+% tan so lay mau Fs, khoang thoi gian chia khung,
+% muc do loc nhieu
+% Tra ve ma tran tin hieu da loc nhieu
+% so frame_du, ma, so khung
+min_silence_samples = min_silence * Fs/frame_length; % tim so mau nho nhat cua doan lang
+%% Tim giao diem 2 do thi
+x = 1: n_frames;  
+dif = @(x) (threshold - ma(x)); % tao vecto dif voi gia tri duong la khoang lang, am la tieng noi
+for i = 2:n_frames
+    zx(i) = dif(i)*dif(i-1); 
+end  
+itsect = find(zx <= 0); % neu tich 2 phan tu lien tiep mang gia tri am thi o do chinh la bien do can tim, itsect chua gia tri la vi tri cac bien do
+silence = zeros(1,length(itsect)); % tao vecto silence mau voi so luong = so luong bien do da tim dc
+%% Kiem tra am noi hay khoang lang
+if length(itsect) > 1 
+    for j = 1:length(itsect)-1
+        % Nghi van Khoang lang
+       if dif(itsect(j)) > 0
+           % Neu khoang lang
+           if (itsect(j+1) - itsect(j)) > min_silence_samples
+               for i = itsect(j):itsect(j+1)
+                   silence(j) = itsect(j);
+                   silence(j+1) = itsect(j+1);
+                   
+                    %La khoang lang
+                    frames(:,i) = 0;
+               end
+           end
+       end 
+    end
+    %% Cac frame cuoi
+    if dif(itsect(length(itsect))) > 0
+        silence(length(itsect)) = itsect(length(itsect));
+        for i = itsect(length(itsect)):n_frames
+           frames(:,i) = 0;
+        end
+    end
+end
+newframes = reshape(frames, [], 1);
+end
+%findThreshold
+function [threshold] = findThreshold(ma) % ham tim threshold cua gian do nang luong MA
+        %[a,idx]=unique(ma); % tim overlap cua gian do nang luong MA
+        %[ii,ii]=sort(idx); % a(ii) la overlap cua gian do nang luong MA
+        f = ma; % vecto f de tim khoang lang
+        g = ma; % vecto g de tim giong noi
+        Tmin = min(ma);
+        Tmax = max(ma);
+        T = (Tmin+Tmax)/2;
+        i = length(f<T); % so luong gia tri nho hon T
+        p = length(g>T); % so luong gia tri lon hon T
+        j = -1;
+        q = -1;
+        while( j~=i || q~=p) % so luong khong doi thi dung vong lap
+            sumf = 0; % tong cac phan tu nam trong khoang lang
+            sumg = 0; % tong cac phan tu nam trong tieng noi
+            for k = 1:length(f)
+                    sumf = sumf + max(f(k) - T,0); %tinh tong
+                    sumg = sumg + max(T - g(k),0); %tinh tong
+            end
+            if(sumf > sumg) %neu tong cac phan tu khoang lang > tong cac phan tu tieng noi 
+                Tmin = T;        % thi T min = T
+            else
+                Tmax = T;
+            end
+            T = (Tmin+Tmax)/2; % Thay doi T
+            j = i;
+            q = p;
+            i = length(f<T); % tinh lai so luong gia tri nho hon T
+            p = length(g>T); % tinh lai so luong gia tri lon hon T
+        end
+        threshold = (T + Tmin)/2;
+end
+
+
